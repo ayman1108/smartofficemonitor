@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Temperature Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 40px;
+    }
+    img {
+      width: 80%;
+      max-width: 800px;
+      border: 1px solid #ccc;
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
+    }
+  </style>
+  <script>
+    // מרענן את התמונה כל 10 שניות עם timestamp שונה
+    function refreshImage() {
+      const img = document.getElementById("temperature-image");
+      img.src = "temperature_chart.png?ts=" + new Date().getTime();
+    }
+
+    // מריץ את הרענון כל 10 שניות
+    setInterval(refreshImage, 10000);
+  </script>
+</head>
+<body>
+  <h1>Office Temperature Over Time</h1>
+  <img id="temperature-image" src="temperature_chart.png" alt="Temperature Graph">
+  <p>Refreshing every 10 seconds...</p>
+</body>
+</html>
+
