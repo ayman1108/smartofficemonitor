@@ -2,35 +2,83 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Temperature Dashboard</title>
+  <title>Live Environment Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
       text-align: center;
       margin: 40px;
     }
-    img {
-      width: 80%;
-      max-width: 800px;
-      border: 1px solid #ccc;
-      box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
+
+    #plotly-chart {
+      width: 90%;
+      max-width: 1000px;
+      margin: auto;
+    }
+
+    #alert {
+      background-color: rgba(255, 0, 0, 0.75);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 18px;
+      font-weight: bold;
+      display: none;
+      margin: 10px auto;
+      width: fit-content;
     }
   </style>
-  <script>
-    // מרענן את התמונה כל 10 שניות עם timestamp שונה
-    function refreshImage() {
-      const img = document.getElementById("temperature-image");
-      img.src = "temperature_chart.png?ts=" + new Date().getTime();
-    }
-
-    // מריץ את הרענון כל 10 שניות
-    setInterval(refreshImage, 10000);
-  </script>
 </head>
 <body>
-  <h1>Office Temperature Over Time</h1>
-  <img id="temperature-image" src="temperature_chart.png" alt="Temperature Graph">
+  <h1>Live Environment Dashboard</h1>
+
+  <div id="alert"></div>
+  <div id="plotly-chart"></div>
+
   <p>Refreshing every 10 seconds...</p>
+
+  <script>
+    function refreshPlot() {
+      fetch("/api/data/temperature")
+        .then(res => res.json())
+        .then(data => {
+          const trace = {
+            x: data.timestamps,
+            y: data.temperatures,
+            mode: 'lines+markers',
+            type: 'scatter',
+            line: { color: 'blue' }
+          };
+          const layout = {
+            title: 'Temperature Over Time',
+            xaxis: { title: 'Time' },
+            yaxis: { title: 'Temperature (°C)' }
+          };
+          Plotly.newPlot('plotly-chart', [trace], layout);
+        });
+    }
+
+    function refreshAlert() {
+      fetch("/alert")
+        .then(response => response.json())
+        .then(data => {
+          const alertDiv = document.getElementById("alert");
+          if (data.alert && data.alert !== "") {
+            alertDiv.textContent = data.alert;
+            alertDiv.style.display = "block";
+          } else {
+            alertDiv.style.display = "none";
+          }
+        });
+    }
+
+    window.onload = function () {
+      refreshPlot();
+      refreshAlert();
+      setInterval(refreshPlot, 10000);
+      setInterval(refreshAlert, 5000);
+    };
+  </script>
 </body>
 </html>
-

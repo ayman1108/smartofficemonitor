@@ -1,112 +1,151 @@
-from flask import Flask, render_template_string, send_file
+from flask import Flask, jsonify, render_template_string, request
 from datetime import datetime
-from io import BytesIO
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
 from mqtt_listener import start_mqtt
 
-# הפעלת ה-MQTT listener וקבלת התור (buffer)
+app = Flask(__name__)
 mqtt_client, data_buffer = start_mqtt()
 
-app = Flask(__name__)
-
-HTML_TEMPLATE = """
+DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Environment Dashboard</title>
-    <meta http-equiv="refresh" content="10">
-    <style>
-        body { font-family: Arial; text-align: center; margin: 40px; }
-        img { width: 80%%; max-width: 800px; border: 1px solid #ccc; box-shadow: 2px 2px 8px rgba(0,0,0,0.1); }
-        .tabs { margin-bottom: 20px; }
-        .tabs a {
-            display: inline-block;
-            margin: 0 10px;
-            padding: 8px 16px;
-            background-color: #f0f0f0;
-            text-decoration: none;
-            color: black;
-            border-radius: 5px;
-        }
-        .tabs a.active {
-            background-color: #007BFF;
-            color: white;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Live Environment Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin: 40px; }
+    #plotly-chart { width: 90%%; max-width: 1000px; margin: auto; }
+    #alert {
+      background-color: rgba(255, 0, 0, 0.75);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 18px;
+      font-weight: bold;
+      display: none;
+      margin: 10px auto;
+      width: fit-content;
+    }
+    .tabs {
+      margin-bottom: 20px;
+    }
+    .tabs button {
+      padding: 10px 20px;
+      margin: 0 10px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .tabs .active {
+      background-color: #007BFF;
+      color: white;
+    }
+    .tabs .inactive {
+      background-color: #f0f0f0;
+      color: black;
+    }
+  </style>
 </head>
 <body>
-    <h1>Live Environment Dashboard</h1>
-    <div class="tabs">
-        <a href="/" class="{{ 'active' if chart_type == 'temperature' else '' }}">Temperature</a>
-        <a href="/humidity" class="{{ 'active' if chart_type == 'humidity' else '' }}">Humidity</a>
-    </div>
-    <img src="{{ chart_src }}" alt="Chart">
-    <p><small>Refreshing every 10 seconds...</small></p>
+  <h1>Live Environment Dashboard</h1>
+  <div class="tabs">
+    <button id="btn-temp" class="active" onclick="switchTab('temperature')">Temperature</button>
+    <button id="btn-humid" class="inactive" onclick="switchTab('humidity')">Humidity</button>
+  </div>
+  <div id="alert"></div>
+  <div id="plotly-chart"></div>
+  <p>Refreshing every 10 seconds...</p>
+
+  <script>
+    let currentTab = "temperature";
+
+    function refreshPlot() {
+      fetch("/api/data/" + currentTab)
+        .then(res => res.json())
+        .then(data => {
+          const trace = {
+            x: data.timestamps,
+            y: data.values,
+            mode: 'lines+markers',
+            type: 'scatter',
+            line: { color: currentTab === 'temperature' ? 'blue' : 'green' }
+          };
+          const layout = {
+            title: (currentTab === "temperature" ? "Temperature" : "Humidity") + " Over Time",
+            xaxis: { title: "Time" },
+            yaxis: { title: currentTab === "temperature" ? "Temperature (°C)" : "Humidity (%)" }
+          };
+          Plotly.newPlot('plotly-chart', [trace], layout);
+        });
+    }
+
+    function refreshAlert() {
+      const alertDiv = document.getElementById("alert");
+
+      fetch("/alert?tab=" + currentTab)
+        .then(response => response.json())
+        .then(data => {
+          if (data.alert && data.alert !== "") {
+            alertDiv.textContent = data.alert;
+            alertDiv.style.display = "block";
+          } else {
+            alertDiv.style.display = "none";
+          }
+        });
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      refreshPlot();
+      refreshAlert();
+      document.getElementById("btn-temp").className = (tab === "temperature") ? "active" : "inactive";
+      document.getElementById("btn-humid").className = (tab === "humidity") ? "active" : "inactive";
+    }
+
+    window.onload = function () {
+      refreshPlot();
+      refreshAlert();
+      setInterval(refreshPlot, 10000);
+      setInterval(refreshAlert, 5000);
+    };
+  </script>
 </body>
 </html>
 """
 
 @app.route("/")
-def temperature_index():
-    return render_template_string(HTML_TEMPLATE, chart_type="temperature", chart_src="/chart.png")
+def index():
+    return render_template_string(DASHBOARD_HTML)
 
-@app.route("/humidity")
-def humidity_index():
-    return render_template_string(HTML_TEMPLATE, chart_type="humidity", chart_src="/humidity_chart.png")
+@app.route("/alert")
+def alert():
+    tab = request.args.get("tab", "temperature")
+    try:
+        last_row = list(data_buffer)[-1]
+        if tab == "temperature":
+            temp = float(last_row["temperature"])
+            if temp > 8:
+                return jsonify({"alert": "⚠️ טמפרטורה גבוהה! הפעלת מאוורר."})
+        elif tab == "humidity":
+            humidity = float(last_row["humidity"])
+            if humidity > 0:
+                return jsonify({"alert": "💧 לחות גבוהה! פתח חלון או הפעל יבשן."})
+    except:
+        pass
+    return jsonify({"alert": ""})
 
-@app.route("/chart.png")
-def chart():
-    timestamps = []
-    temperatures = []
+@app.route("/api/data/<string:data_type>")
+def get_data(data_type):
+    timestamps, values = [], []
+    key = "temperature" if data_type == "temperature" else "humidity"
     for row in list(data_buffer):
         try:
-            timestamps.append(datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M:%S"))
-            temperatures.append(float(row["temperature"]))
+            timestamps.append(row["timestamp"])
+            values.append(float(row[key]))
         except:
             continue
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(timestamps, temperatures, marker='o', linestyle='-')
-    plt.title("Temperature Over Time")
-    plt.xlabel("Time")
-    plt.ylabel("Temperature (°C)")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.xticks(rotation=45)
-    buf = BytesIO()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    return send_file(buf, mimetype="image/png")
-
-@app.route("/humidity_chart.png")
-def humidity_chart():
-    timestamps = []
-    humidities = []
-    for row in list(data_buffer):
-        try:
-            timestamps.append(datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M:%S"))
-            humidities.append(float(row["humidity"]))
-        except:
-            continue
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(timestamps, humidities, marker='o', linestyle='-', color='green')
-    plt.title("Humidity Over Time")
-    plt.xlabel("Time")
-    plt.ylabel("Humidity (%)")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.xticks(rotation=45)
-    buf = BytesIO()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    return send_file(buf, mimetype="image/png")
+    return jsonify({"timestamps": timestamps, "values": values})
 
 if __name__ == "__main__":
     app.run(debug=True)
