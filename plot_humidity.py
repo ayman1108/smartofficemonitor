@@ -1,25 +1,22 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# קריאת הקובץ
+# Load data
 df = pd.read_csv("temperature_log.csv")
-
-# המרת עמודת הזמן לפורמט תאריך-שעה
 df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-# ציור הגרף
+# Plot
 plt.figure(figsize=(14, 6))
 plt.plot(df["timestamp"], df["humidity"], marker="o", linestyle="-", label="Humidity", color='blue')
 
-# סימון חריגות (לחות < 35%)
-alerts = df[df["humidity"] < 35]
-plt.scatter(alerts["timestamp"], alerts["humidity"], color='red', label="Low Humidity Alert")
+# Check if the latest humidity is still low
+latest = df.iloc[-1]
+if latest["humidity"] < 35:
+    # Plot only the latest alert
+    plt.scatter(latest["timestamp"], latest["humidity"], color='red', label="Low Humidity Alert")
+    plt.text(latest["timestamp"], latest["humidity"] + 1, "💧", color='red', ha='center', fontsize=12)
 
-# הוספת טקסט 💧 על הנקודות החריגות
-for i, row in alerts.iterrows():
-    plt.text(row["timestamp"], row["humidity"] + 1, "💧", color='red', ha='center', fontsize=12)
-
-# עיצוב הגרף
+# Styling
 plt.xlabel("Time")
 plt.ylabel("Humidity (%)")
 plt.title("Humidity Over Time")
@@ -27,6 +24,6 @@ plt.legend()
 plt.xticks(rotation=45)
 plt.tight_layout()
 
-# שמירת הגרף
+# Save
 plt.savefig("humidity_chart.png")
 plt.close()

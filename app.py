@@ -1,9 +1,15 @@
+import os
 from flask import Flask, jsonify, render_template_string, request
-from datetime import datetime
-from mqtt_listener import start_mqtt
+from collections import deque
 
+# Correctly import shared buffer from mqtt_listener
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    from mqtt_listener import start_mqtt
+    mqtt_client, data_buffer = start_mqtt()
+else:
+    from mqtt_listener import data_buffer  # share buffer without reinitializing MQTT
 app = Flask(__name__)
-mqtt_client, data_buffer = start_mqtt()
+
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -125,15 +131,16 @@ def alert():
         last_row = list(data_buffer)[-1]
         if tab == "temperature":
             temp = float(last_row["temperature"])
-            if temp > 8:
+            if temp > 30:
                 return jsonify({"alert": "⚠️ טמפרטורה גבוהה! הפעלת מאוורר."})
         elif tab == "humidity":
             humidity = float(last_row["humidity"])
-            if humidity > 0:
-                return jsonify({"alert": "💧 לחות גבוהה! פתח חלון או הפעל יבשן."})
+            if humidity < 35 or humidity > 55:
+                return jsonify({"alert": "💧 לחות חריגה! פתח חלון או הפעל יבשן."})
     except:
         pass
     return jsonify({"alert": ""})
+
 
 @app.route("/api/data/<string:data_type>")
 def get_data(data_type):
